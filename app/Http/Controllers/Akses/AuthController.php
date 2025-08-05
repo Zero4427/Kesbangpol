@@ -16,7 +16,7 @@ class AuthController extends Controller
     public function registerPengguna(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'nama_pengguna' => 'required|string|max:255',
+            'nama_pengguna' => 'required|string|max:255|unique:penggunas',
             'email_pengguna' => 'required|string|email|max:255|unique:penggunas',
             'password_pengguna' => 'required|string|min:8|confirmed',
             'alamat_pengguna' => 'required|string',

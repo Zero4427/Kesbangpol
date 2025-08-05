@@ -121,14 +121,4 @@ class Organisasi extends Model
     {
         return $this->status_verifikasi === self::STATUS_REJECTED;
     }
-
-    /**public function setStatus($status, $adminId, $catatanAdmin = null, $linkDriveAdmin = null)
-    {
-        $this->status = $status;
-        $this->admin_id = $adminId;
-        $this->catatan_admin = $catatanAdmin;
-        $this->link_drive_admin = $linkDriveAdmin;
-        $this->tanggal_verifikasi = now();
-        $this->save();
-    }*/
 }
