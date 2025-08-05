@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OrganisasiController extends Controller
 {
@@ -82,7 +83,7 @@ class OrganisasiController extends Controller
             // Filter berdasarkan status jika diminta
             if ($request->has('status')) {
                 $status = $request->input('status');
-                if (in_array($status, [Verifikasi::STATUS_PENDING, Verifikasi::STATUS_APPROVED, Verifikasi::STATUS_REJECTED])) {
+                if (in_array($status, [Organisasi::STATUS_PENDING, Organisasi::STATUS_VERIFIED, Organisasi::STATUS_REJECTED])) {
                     $query->where('status_verifikasi', $status);
                 }
             }
@@ -98,6 +99,294 @@ class OrganisasiController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengambil data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ===== NEW METHODS FOR ADMIN MANAGEMENT =====
+    public function getAllOrganisasiForAdmin(Request $request)
+    {
+        try {
+            $currentLogin = $this->getCurrentLogin($request);
+            
+            // Pastikan yang mengakses adalah admin
+            if ($currentLogin->user_type !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat mengakses endpoint ini.'
+                ], 403);
+            }
+
+            $query = Organisasi::with([
+                'pengguna:id,nama_pengguna,email_pengguna,no_telpon_pengguna',
+                'kajian:id,nama_kajian',
+                'sosialMedias',
+                'strukturPengurus',
+                'verifikasi.admin:id,nama_admin'
+            ]);
+
+            // Filter berdasarkan status jika diminta
+            if ($request->has('status')) {
+                $status = $request->input('status');
+                if (in_array($status, [Organisasi::STATUS_PENDING, Organisasi::STATUS_VERIFIED, Organisasi::STATUS_REJECTED])) {
+                    $query->where('status_verifikasi', $status);
+                }
+            }
+
+            // Filter berdasarkan kajian jika diminta
+            if ($request->has('kajian_id')) {
+                $query->where('kajian_id', $request->kajian_id);
+            }
+
+            // Filter berdasarkan tanggal pendaftaran
+            if ($request->has('start_date')) {
+                $query->whereDate('created_at', '>=', $request->start_date);
+            }
+            if ($request->has('end_date')) {
+                $query->whereDate('created_at', '<=', $request->end_date);
+            }
+
+            // Sorting
+            $sortBy = $request->input('sort_by', 'created_at');
+            $sortOrder = $request->input('sort_order', 'desc');
+            
+            if (in_array($sortBy, ['created_at', 'nama_organisasi', 'status_verifikasi', 'tanggal_berdiri'])) {
+                $query->orderBy($sortBy, $sortOrder);
+            } else {
+                $query->latest();
+            }
+
+            // Pagination
+            $perPage = $request->input('per_page', 15);
+            $perPage = min($perPage, 100); // Max 100 per page
+
+            if ($request->has('paginate') && $request->paginate === 'false') {
+                $organisasi = $query->get();
+                $totalCount = $organisasi->count();
+            } else {
+                $organisasi = $query->paginate($perPage);
+                $totalCount = $organisasi->total();
+            }
+
+            // Statistik ringkas
+            $stats = [
+                'total' => Organisasi::count(),
+                'aktif' => Organisasi::where('status_verifikasi', Organisasi::STATUS_VERIFIED)->count(),
+                'proses' => Organisasi::where('status_verifikasi', Organisasi::STATUS_PENDING)->count(),
+                'tidak_aktif' => Organisasi::where('status_verifikasi', Organisasi::STATUS_REJECTED)->count(),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Data semua organisasi berhasil diambil',
+                'data' => $organisasi,
+                'statistics' => $stats,
+                'filters_applied' => [
+                    'status' => $request->input('status'),
+                    'kajian_id' => $request->input('kajian_id'),
+                    'start_date' => $request->input('start_date'),
+                    'end_date' => $request->input('end_date'),
+                    'sort_by' => $sortBy,
+                    'sort_order' => $sortOrder,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengambil data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getOrganisasiByStatus(Request $request, $status)
+    {
+        try {
+            $currentLogin = $this->getCurrentLogin($request);
+            
+            // Pastikan yang mengakses adalah admin
+            if ($currentLogin->user_type !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat mengakses endpoint ini.'
+                ], 403);
+            }
+
+            // Validasi status
+            if (!in_array($status, [Organisasi::STATUS_PENDING, Organisasi::STATUS_VERIFIED, Organisasi::STATUS_REJECTED])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Status tidak valid. Status yang tersedia: proses, aktif, tidak aktif'
+                ], 400);
+            }
+
+            $organisasi = Organisasi::with([
+                'pengguna:id,nama_pengguna,email_pengguna,no_telpon_pengguna',
+                'kajian:id,nama_kajian',
+                'sosialMedias',
+                'strukturPengurus',
+                'verifikasi.admin:id,nama_admin'
+            ])
+            ->where('status_verifikasi', $status)
+            ->latest()
+            ->get();
+
+            $statusMessages = [
+                Organisasi::STATUS_PENDING => 'Organisasi yang menunggu verifikasi',
+                Organisasi::STATUS_VERIFIED => 'Organisasi yang telah diverifikasi (aktif)',
+                Organisasi::STATUS_REJECTED => 'Organisasi yang ditolak (tidak aktif)'
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => $statusMessages[$status],
+                'data' => $organisasi,
+                'count' => $organisasi->count(),
+                'status_filter' => $status
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengambil data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getDetailForAdmin(Request $request, $id)
+    {
+        try {
+            $currentLogin = $this->getCurrentLogin($request);
+            
+            // Pastikan yang mengakses adalah admin
+            if ($currentLogin->user_type !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat mengakses endpoint ini.'
+                ], 403);
+            }
+
+            $organisasi = Organisasi::with([
+                'pengguna' => function($query) {
+                    $query->select('id', 'nama_pengguna', 'email_pengguna', 'alamat_pengguna', 'no_telpon_pengguna', 'created_at');
+                },
+                'kajian:id,nama_kajian,deskripsi_kajian',
+                'sosialMedias',
+                'strukturPengurus',
+                'verifikasi' => function($query) {
+                    $query->with('admin:id,nama_admin,email_admin');
+                }
+            ])
+            ->findOrFail($id);
+
+            // Tambahan informasi untuk admin
+            $additionalInfo = [
+                'file_urls' => [
+                    'logo_url' => $organisasi->logo_organisasi ? Storage::url($organisasi->logo_organisasi) : null,
+                    'persyaratan_url' => $organisasi->file_persyaratan ? Storage::url($organisasi->file_persyaratan) : null,
+                ],
+                'verification_history' => $organisasi->verifikasi ? [
+                    'verified_by' => $organisasi->verifikasi->admin->nama_admin ?? null,
+                    'verified_at' => $organisasi->verifikasi->tanggal_verifikasi,
+                    'admin_notes' => $organisasi->verifikasi->catatan_admin,
+                    'admin_drive_link' => $organisasi->verifikasi->link_drive_admin,
+                ] : null,
+                'status_display' => $organisasi->getStatusDisplayAttribute(),
+                'days_since_registration' => $organisasi->created_at->diffInDays(now()),
+                'last_updated' => $organisasi->updated_at,
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Detail organisasi berhasil diambil',
+                'data' => $organisasi,
+                'additional_info' => $additionalInfo
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Organisasi tidak ditemukan',
+                'error' => $e->getMessage()
+            ], 404);
+        }
+    }
+
+    public function getOrganisasiStatistics(Request $request)
+    {
+        try {
+            $currentLogin = $this->getCurrentLogin($request);
+            
+            // Pastikan yang mengakses adalah admin
+            if ($currentLogin->user_type !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat mengakses endpoint ini.'
+                ], 403);
+            }
+
+            // Statistik dasar
+            $basicStats = [
+                'total_organisasi' => Organisasi::count(),
+                'organisasi_aktif' => Organisasi::where('status_verifikasi', Organisasi::STATUS_VERIFIED)->count(),
+                'menunggu_verifikasi' => Organisasi::where('status_verifikasi', Organisasi::STATUS_PENDING)->count(),
+                'organisasi_ditolak' => Organisasi::where('status_verifikasi', Organisasi::STATUS_REJECTED)->count(),
+            ];
+
+            // Statistik berdasarkan kajian
+            $statsByKajian = Kajian::withCount([
+                'organisasi',
+                'organisasi as organisasi_aktif_count' => function($query) {
+                    $query->where('status_verifikasi', Organisasi::STATUS_VERIFIED);
+                },
+                'organisasi as organisasi_pending_count' => function($query) {
+                    $query->where('status_verifikasi', Organisasi::STATUS_PENDING);
+                }
+            ])->get();
+
+            // Statistik berdasarkan bulan registrasi (6 bulan terakhir)
+            $monthlyStats = [];
+            for ($i = 5; $i >= 0; $i--) {
+                $date = now()->subMonths($i);
+                $monthlyStats[] = [
+                    'month' => $date->format('Y-m'),
+                    'month_name' => $date->format('F Y'),
+                    'total_registered' => Organisasi::whereMonth('created_at', $date->month)
+                                                   ->whereYear('created_at', $date->year)
+                                                   ->count(),
+                    'verified_count' => Organisasi::whereMonth('created_at', $date->month)
+                                                 ->whereYear('created_at', $date->year)
+                                                 ->where('status_verifikasi', Organisasi::STATUS_VERIFIED)
+                                                 ->count(),
+                ];
+            }
+
+            // Organisasi terbaru yang butuh perhatian admin
+            $recentPending = Organisasi::with(['pengguna:id,nama_pengguna', 'kajian:id,nama_kajian'])
+                ->where('status_verifikasi', Organisasi::STATUS_PENDING)
+                ->latest()
+                ->limit(5)
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Statistik organisasi berhasil diambil',
+                'data' => [
+                    'basic_statistics' => $basicStats,
+                    'statistics_by_kajian' => $statsByKajian,
+                    'monthly_registration' => $monthlyStats,
+                    'recent_pending_organizations' => $recentPending,
+                    'generated_at' => now()->toDateTimeString()
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengambil statistik',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -269,20 +558,34 @@ class OrganisasiController extends Controller
     public function update(Request $request, $id)
     {
         try {
-            $organisasi = Organisasi::findOrFail($id);
-            $currentLogin = $this->getCurrentLogin($request);
+            Log::info('Update request received', ['id' => $id, 'data' => $request->all()]);
 
-            // Check if user owns this organisasi or is admin
-            if ($currentLogin->user_type === 'pengguna' && $currentLogin->user_id !== $organisasi->pengguna_id) {
+            // Cari organisasi
+            $organisasi = Organisasi::findOrFail($id);
+            Log::info('Organisasi found', ['id' => $id, 'organisasi' => $organisasi->toArray()]);
+
+            // Validasi token dan izin pengguna
+            $currentLogin = $this->getCurrentLogin($request);
+            if (!$currentLogin) {
+                Log::error('Invalid or missing token', ['request' => $request->headers->all()]);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Unauthorized'
+                    'message' => 'Token tidak valid atau tidak ditemukan'
+                ], 401);
+            }
+
+            // Cek apakah pengguna memiliki izin
+            if ($currentLogin->user_type === 'pengguna' && $currentLogin->user_id !== $organisasi->pengguna_id) {
+                Log::error('Unauthorized access attempt', ['user_id' => $currentLogin->user_id, 'organisasi_id' => $id]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak diizinkan: Anda bukan pemilik organisasi ini'
                 ], 403);
             }
 
+            // Validasi input
             $validator = Validator::make($request->all(), [
-                'nama_kajian' => 'sometimes|string|exists:kajians,nama_kajian', // Menggunakan nama kajian
-                'tanggal_berdiri' => 'sometimes|date',
+                'nama_kajian' => 'sometimes|string|exists:kajians,nama_kajian',
                 'deskripsi_organisasi' => 'sometimes|string',
                 'logo_organisasi' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
                 'file_persyaratan' => 'nullable|file|mimes:pdf|max:5120',
@@ -298,42 +601,74 @@ class OrganisasiController extends Controller
             ]);
 
             if ($validator->fails()) {
+                Log::error('Validation failed', ['errors' => $validator->errors()->toArray()]);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Validation error',
+                    'message' => 'Validasi gagal',
                     'errors' => $validator->errors()
                 ], 422);
             }
+
+            DB::beginTransaction();
 
             // Handle logo upload
             if ($request->hasFile('logo_organisasi')) {
                 if ($organisasi->logo_organisasi) {
                     Storage::disk('public')->delete($organisasi->logo_organisasi);
+                    Log::info('Old logo deleted', ['path' => $organisasi->logo_organisasi]);
                 }
                 $organisasi->logo_organisasi = $request->file('logo_organisasi')->store('logos', 'public');
+                Log::info('New logo uploaded', ['path' => $organisasi->logo_organisasi]);
             }
 
             // Handle file upload
             if ($request->hasFile('file_persyaratan')) {
                 if ($organisasi->file_persyaratan) {
                     Storage::disk('public')->delete($organisasi->file_persyaratan);
+                    Log::info('Old file persyaratan deleted', ['path' => $organisasi->file_persyaratan]);
                 }
                 $organisasi->file_persyaratan = $request->file('file_persyaratan')->store('persyaratan', 'public');
+                Log::info('New file persyaratan uploaded', ['path' => $organisasi->file_persyaratan]);
+                // Reset status verifikasi jika file persyaratan diupdate
+                $organisasi->status_verifikasi = Organisasi::STATUS_PENDING;
+                if ($organisasi->verifikasi) {
+                    $organisasi->verifikasi->update(['status' => Verifikasi::STATUS_PENDING, 'tanggal_verifikasi' => null]);
+                }
             }
 
-            // Update kajian jika ada perubahan nama kajian
-            $updateData = $request->except(['logo_organisasi', 'file_persyaratan', 'sosial_media', 'struktur_pengurus', 'nama_kajian']);
-            
+            // Siapkan data untuk update (kecuali nama_organisasi dan tanggal_berdiri)
+            $updateData = $request->only(['deskripsi_organisasi']);
+            Log::info('Update data prepared', ['updateData' => $updateData]);
+
+            // Update kajian jika ada perubahan nama_kajian
             if ($request->has('nama_kajian')) {
                 $kajian = Kajian::where('nama_kajian', $request->nama_kajian)->first();
-                $updateData['kajian_id'] = $kajian->id;
+                if ($kajian) {
+                    $updateData['kajian_id'] = $kajian->id;
+                    Log::info('Kajian found and will be updated', ['kajian_id' => $kajian->id]);
+                } else {
+                    DB::rollback();
+                    Log::error('Kajian not found', ['nama_kajian' => $request->nama_kajian]);
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Kajian tidak ditemukan',
+                        'errors' => ['nama_kajian' => ['Kajian tidak ditemukan.']]
+                    ], 422);
+                }
             }
 
-            $organisasi->update($updateData);
+            // Update organisasi hanya jika ada data untuk diupdate
+            if (!empty($updateData)) {
+                $organisasi->update($updateData);
+                Log::info('Organisasi updated', ['id' => $id, 'updated_data' => $updateData]);
+            } else {
+                Log::info('No fields to update in organisasi table', ['id' => $id]);
+            }
 
             // Update sosial media
             if ($request->has('sosial_media')) {
                 $organisasi->sosialMedias()->delete();
+                Log::info('Existing sosial media deleted', ['organisasi_id' => $id]);
                 foreach ($request->sosial_media as $sosmed) {
                     SosialMedia::create([
                         'organisasi_id' => $organisasi->id,
@@ -341,11 +676,13 @@ class OrganisasiController extends Controller
                         'url' => $sosmed['url'],
                     ]);
                 }
+                Log::info('New sosial media created', ['organisasi_id' => $id, 'sosial_media' => $request->sosial_media]);
             }
 
             // Update struktur pengurus
             if ($request->has('struktur_pengurus')) {
                 $organisasi->strukturPengurus()->delete();
+                Log::info('Existing struktur pengurus deleted', ['organisasi_id' => $id]);
                 foreach ($request->struktur_pengurus as $pengurus) {
                     StrukturPengurus::create([
                         'organisasi_id' => $organisasi->id,
@@ -356,9 +693,20 @@ class OrganisasiController extends Controller
                         'no_telpon' => $pengurus['no_telpon'] ?? null,
                     ]);
                 }
+                Log::info('New struktur pengurus created', ['organisasi_id' => $id, 'struktur_pengurus' => $request->struktur_pengurus]);
             }
 
+            // Simpan perubahan file (logo_organisasi dan file_persyaratan) jika ada
+            if ($request->hasFile('logo_organisasi') || $request->hasFile('file_persyaratan')) {
+                $organisasi->save();
+                Log::info('Organisasi saved with file updates', ['id' => $id, 'logo' => $organisasi->logo_organisasi, 'persyaratan' => $organisasi->file_persyaratan]);
+            }
+
+            // Muat ulang relasi untuk respons
             $organisasi->load(['pengguna', 'kajian', 'sosialMedias', 'strukturPengurus']);
+            Log::info('Organisasi loaded after update', ['organisasi' => $organisasi->toArray()]);
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
@@ -367,6 +715,8 @@ class OrganisasiController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            DB::rollback();
+            Log::error('Update failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengupdate data',
@@ -489,10 +839,18 @@ class OrganisasiController extends Controller
         }
     }
 
+    // FIX: Method getByPengguna - ini adalah perbaikan untuk error "by-user"
     public function getByPengguna(Request $request)
     {
         try {
             $currentLogin = $this->getCurrentLogin($request);
+            
+            if (!$currentLogin) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Token tidak valid atau telah kedaluwarsa'
+                ], 401);
+            }
             
             $organisasi = Organisasi::with(['kajian', 'sosialMedias', 'strukturPengurus', 'verifikasi.admin'])
                 ->where('pengguna_id', $currentLogin->user_id)
@@ -501,7 +859,8 @@ class OrganisasiController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Data organisasi pengguna berhasil diambil',
-                'data' => $organisasi
+                'data' => $organisasi,
+                'count' => $organisasi->count()
             ]);
 
         } catch (\Exception $e) {
@@ -513,10 +872,18 @@ class OrganisasiController extends Controller
         }
     }
 
+    // FIX: Method getPendingVerification - ini adalah perbaikan untuk error "pending-verification"
     public function getPendingVerification(Request $request)
     {
         try {
             $currentLogin = $this->getCurrentLogin($request);
+            
+            if (!$currentLogin) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Token tidak valid atau telah kedaluwarsa'
+                ], 401);
+            }
             
             // Cek apakah user adalah admin
             if ($currentLogin->user_type !== 'admin') {
@@ -527,11 +894,11 @@ class OrganisasiController extends Controller
             }
 
             $organisasi = Organisasi::with([
-                'pengguna' => fn($q) => $q->select('id', 'nama_pengguna'), 
+                'pengguna' => fn($q) => $q->select('id', 'nama_pengguna', 'email_pengguna', 'no_telpon_pengguna'), 
                 'kajian' => fn($q) => $q->select('id', 'nama_kajian'), 
                 'verifikasi'
                 ])
-                ->pending()
+                ->where('status_verifikasi', Organisasi::STATUS_PENDING)
                 ->latest()
                 ->get();
 
