@@ -10,7 +10,8 @@ return new class extends Migration
     {
         Schema::create('bidangs', function (Blueprint $table) {
             $table->id();
-            $table->string('nama_bidang');
+            $table->string('nama_ketua')->unique();
+            $table->string('nama_bidang')->unique();
             $table->text('deskripsi_bidang')->nullable();
             $table->string('gambar_karyawan')->nullable();
             $table->integer('jumlah_staf')->default(0);

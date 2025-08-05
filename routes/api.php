@@ -30,6 +30,23 @@ Route::get('/organisasi/public/{id}', [OrganisasiController::class, 'showPublic'
 Route::get('/kajian', [KajianController::class, 'index']);
 Route::get('/kajian/{id}', [KajianController::class, 'show']);
 
+// ===== BIDANG ROUTES (PUBLIC) =====
+// Route untuk melihat bidang tanpa bearer token
+Route::get('/bidang', [BidangController::class, 'index']);
+Route::get('/bidang/{id}', [BidangController::class, 'show']);
+
+// ===== TENTANG KAMI ROUTES (PUBLIC) =====
+Route::get('/tentang-kami', [TentangKamiController::class, 'index']);
+Route::get('/tentang-kami/{id}', [TentangKamiController::class, 'show']);
+
+// ===== FAQ (PUBLIC) =====
+Route::get('/faq', [FaqController::class, 'index']);
+Route::get('/faq/{id}', [FaqController::class, 'show']);
+
+// ===== BERITA (PUBLIC) =====
+Route::get('/berita/all', [BeritaController::class, 'index']);
+Route::get('/berita/all/{id}', [BeritaController::class, 'show']);
+
 // ===== AUTH ROUTES (protected) =====
 Route::middleware(['auth.bearer'])->group(function () {
     Route::post('/auth/register-admin', [AuthController::class, 'registerAdmin']); // hanya super admin
@@ -111,31 +128,29 @@ Route::middleware(['auth.bearer'])->group(function () {
     Route::get('/berita/by-organisasi/{organisasi_id}', [BeritaController::class, 'getByOrganisasi']);
 });
 
-// ===== BIDANG ROUTES =====
-Route::middleware(['auth.bearer'])->group(function () {
-    Route::get('/bidang', [BidangController::class, 'index']);
-    Route::get('/bidang/{id}', [BidangController::class, 'show']);
-    Route::post('/bidang', [BidangController::class, 'store'])->middleware('admin.only');
-    Route::put('/bidang/{id}/update', [BidangController::class, 'update'])->middleware('admin.only');
-    Route::delete('/bidang/{id}', [BidangController::class, 'destroy'])->middleware('admin.only');
+// ===== BIDANG ROUTES (PROTECTED - ADMIN ONLY) =====
+Route::middleware(['auth.bearer', 'admin.only'])->group(function () {
+    Route::post('/admin/bidang', [BidangController::class, 'store']);
+    Route::put('/admin/bidang/{id}/update', [BidangController::class, 'update']);
+    Route::delete('/admin/bidang/{id}', [BidangController::class, 'destroy']);
 });
 
 // ===== FAQ ROUTES =====
 Route::middleware(['auth.bearer'])->group(function () {
-    Route::get('/faq', [FaqController::class, 'index']);
-    Route::get('/faq/{id}', [FaqController::class, 'show']);
-    Route::post('/faq', [FaqController::class, 'store'])->middleware('admin.only');
-    Route::put('/faq/{id}/update', [FaqController::class, 'update'])->middleware('admin.only');
-    Route::delete('/faq/{id}', [FaqController::class, 'destroy'])->middleware('admin.only');
+    Route::get('/admin/faq', [FaqController::class, 'index']);
+    Route::get('/admin/faq/{id}', [FaqController::class, 'show']);
+    Route::post('/admin/faq', [FaqController::class, 'store'])->middleware('admin.only');
+    Route::put('/admin/faq/{id}/update', [FaqController::class, 'update'])->middleware('admin.only');
+    Route::delete('/admin/faq/{id}', [FaqController::class, 'destroy'])->middleware('admin.only');
 });
 
-// ===== TENTANG KAMI ROUTES =====
-Route::middleware(['auth.bearer'])->group(function () {
-    Route::get('/tentang-kami', [TentangKamiController::class, 'index']);
-    Route::get('/tentang-kami/{id}', [TentangKamiController::class, 'show']);
-    Route::post('/tentang-kami', [TentangKamiController::class, 'store'])->middleware('admin.only');
-    Route::put('/tentang-kami/{id}/update', [TentangKamiController::class, 'update'])->middleware('admin.only');
-    Route::delete('/tentang-kami/{id}', [TentangKamiController::class, 'destroy'])->middleware('admin.only');
+// ===== TENTANG KAMI ROUTES (PROTECTED - ADMIN ONLY) =====
+Route::middleware(['auth.bearer', 'admin.only'])->group(function () {
+    Route::get('/admin/tentang-kami', [TentangKamiController::class, 'index']);
+    Route::get('/admin/tentang-kami/{id}', [TentangKamiController::class, 'show']);
+    Route::post('/admin/tentang-kami', [TentangKamiController::class, 'store']);
+    Route::put('/admin/tentang-kami/{id}/update', [TentangKamiController::class, 'update']);
+    Route::delete('/admin/tentang-kami/{id}', [TentangKamiController::class, 'destroy']);
 });
 
 // ===== VERIFIKASI STATUS (KHUSUS ADMIN) =====
@@ -148,9 +163,11 @@ Route::middleware(['auth.bearer', 'admin.only'])->group(function () {
 
 // ===== KAJIAN ROUTES (PROTECTED - ADMIN ONLY) =====
 Route::middleware(['auth.bearer'])->group(function () {
-    Route::post('/kajian', [KajianController::class, 'store'])->middleware('admin.only');
-    Route::put('/kajian/{id}/update', [KajianController::class, 'update'])->middleware('admin.only');
-    Route::delete('/kajian/{id}', [KajianController::class, 'destroy'])->middleware('admin.only');
+    Route::get('/admin/kajian', [KajianController::class, 'index'])->middleware('admin.only');
+    Route::get('/admin/kajian/{id}', [KajianController::class, 'show'])->middleware('admin.only');
+    Route::post('/admin/kajian', [KajianController::class, 'store'])->middleware('admin.only');
+    Route::put('/admin/kajian/{id}/update', [KajianController::class, 'update'])->middleware('admin.only');
+    Route::delete('/admin/kajian/{id}', [KajianController::class, 'destroy'])->middleware('admin.only');
 });
 
 // === LAPORAN ROUTES ===

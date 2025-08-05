@@ -32,7 +32,8 @@ class BidangController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'nama_bidang' => 'required|string|max:255',
+            'nama_ketua' => 'nullable|string|max:255|unique:bidangs',
+            'nama_bidang' => 'required|string|max:255|unique:bidangs',
             'deskripsi_bidang' => 'nullable|string',
             'gambar_karyawan' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'jumlah_staf' => 'required|integer|min:0',
@@ -53,6 +54,7 @@ class BidangController extends Controller
             }
 
             $bidang = Bidang::create([
+                'nama_ketua' => $request->nama_ketua,
                 'nama_bidang' => $request->nama_bidang,
                 'deskripsi_bidang' => $request->deskripsi_bidang,
                 'gambar_karyawan' => $gambarPath,
@@ -95,7 +97,8 @@ class BidangController extends Controller
     public function update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'nama_bidang' => 'sometimes|string|max:255',
+            'nama_ketua' => 'sometimes|string|max:255|unique:bidangs',
+            'nama_bidang' => 'sometimes|string|max:255|unique:bidangs',
             'deskripsi_bidang' => 'nullable|string',
             'gambar_karyawan' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'jumlah_staf' => 'sometimes|integer|min:0',
