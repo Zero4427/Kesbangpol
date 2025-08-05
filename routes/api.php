@@ -20,6 +20,16 @@ Route::post('/auth/register-pengguna', [AuthController::class, 'registerPengguna
 Route::post('/auth/login-pengguna', [AuthController::class, 'loginPengguna']);
 Route::post('/auth/login-admin', [AuthController::class, 'loginAdmin']);
 
+// ===== ORGANISASI ROUTES (PUBLIC) =====
+// Route untuk melihat organisasi tanpa bearer token (hanya yang terverifikasi)
+Route::get('/organisasi', [OrganisasiController::class, 'indexPublic']);
+Route::get('/organisasi/{id}', [OrganisasiController::class, 'showPublic']);
+
+// ===== KAJIAN ROUTES (PUBLIC) =====
+// Route untuk melihat kajian tanpa bearer token
+Route::get('/kajian', [KajianController::class, 'index']);
+Route::get('/kajian/{id}', [KajianController::class, 'show']);
+
 // ===== AUTH ROUTES (protected) =====
 Route::middleware(['auth.bearer'])->group(function () {
     Route::post('/auth/register-admin', [AuthController::class, 'registerAdmin']); // hanya super admin
@@ -51,16 +61,17 @@ Route::middleware(['auth.bearer'])->group(function () {
     Route::get('/admin/system-stats', [AdminController::class, 'getSystemStats']);
 });
 
-// ===== ORGANISASI ROUTES =====
+// ===== ORGANISASI ROUTES (PROTECTED) =====
 Route::middleware(['auth.bearer'])->group(function () {
-    Route::get('/organisasi', [OrganisasiController::class, 'index']);
     Route::post('/organisasi', [OrganisasiController::class, 'store']);
-    Route::get('/organisasi/{id}', [OrganisasiController::class, 'show']);
     Route::put('/organisasi/{id}/update', [OrganisasiController::class, 'update']);
     Route::delete('/organisasi/{id}', [OrganisasiController::class, 'destroy']);
 
     // Ambil organisasi berdasarkan pengguna login
     Route::get('/organisasi/by-user', [OrganisasiController::class, 'getByPengguna']);
+    
+    // Route untuk mengecek ketersediaan nama organisasi berdasarkan nama pengguna
+    Route::get('/organisasi/check-availability', [OrganisasiController::class, 'checkNameAvailability']);
 });
 
 // ===== BERITA ROUTES =====
@@ -111,10 +122,8 @@ Route::middleware(['auth.bearer', 'admin.only'])->group(function () {
     Route::get('/verifikasi/stats', [VerifikasiController::class, 'getStats']);
 });
 
-// ===== KAJIAN ROUTES =====
+// ===== KAJIAN ROUTES (PROTECTED - ADMIN ONLY) =====
 Route::middleware(['auth.bearer'])->group(function () {
-    Route::get('/kajian', [KajianController::class, 'index']);
-    Route::get('/kajian/{id}', [KajianController::class, 'show']);
     Route::post('/kajian', [KajianController::class, 'store'])->middleware('admin.only');
     Route::put('/kajian/{id}/update', [KajianController::class, 'update'])->middleware('admin.only');
     Route::delete('/kajian/{id}', [KajianController::class, 'destroy'])->middleware('admin.only');

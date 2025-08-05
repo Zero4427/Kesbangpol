@@ -9,6 +9,8 @@ use App\Models\Akses\StrukturPengurus;
 use App\Models\Status\Verifikasi;
 use App\Models\Akses\Login;
 use App\Models\Akses\Admin;
+use App\Models\Akses\Pengguna;
+use App\Models\Tampilan\Kajian;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -16,6 +18,51 @@ use Illuminate\Support\Facades\DB;
 
 class OrganisasiController extends Controller
 {
+    // Method untuk public tanpa bearer token (hanya organisasi terverifikasi)
+    public function indexPublic()
+    {
+        try {
+            $organisasi = Organisasi::with(['pengguna', 'kajian', 'sosialMedias', 'strukturPengurus'])
+                ->where('status_verifikasi', Organisasi::STATUS_VERIFIED)
+                ->latest()
+                ->get();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Data organisasi berhasil diambil',
+                'data' => $organisasi
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengambil data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // Method untuk public tanpa bearer token (detail organisasi terverifikasi)
+    public function showPublic($id)
+    {
+        try {
+            $organisasi = Organisasi::with(['pengguna', 'kajian', 'sosialMedias', 'strukturPengurus'])
+                ->where('status_verifikasi', Organisasi::STATUS_VERIFIED)
+                ->findOrFail($id);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Data organisasi berhasil diambil',
+                'data' => $organisasi
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Organisasi tidak ditemukan atau belum terverifikasi',
+                'error' => $e->getMessage()
+            ], 404);
+        }
+    }
+
     public function index(Request $request)
     {
         try {
@@ -59,8 +106,7 @@ class OrganisasiController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'kajian_id' => 'required|exists:kajians,id',
-            'nama_organisasi' => 'required|string|max:255|unique:organisasis',
+            'nama_kajian' => 'required|string|exists:kajians,nama_kajian', // Menggunakan nama kajian
             'tanggal_berdiri' => 'required|date',
             'deskripsi_organisasi' => 'required|string',
             'logo_organisasi' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -76,9 +122,8 @@ class OrganisasiController extends Controller
             'struktur_pengurus.*.no_telpon' => 'nullable|string|max:15',
         ], [
             // Custom error messages
-            'nama_organisasi.unique' => 'Nama organisasi sudah terdaftar dalam sistem.',
-            'kajian_id.required' => 'Kajian harus dipilih.',
-            'kajian_id.exists' => 'Kajian yang dipilih tidak valid.',
+            'nama_kajian.required' => 'Kajian harus dipilih.',
+            'nama_kajian.exists' => 'Kajian yang dipilih tidak valid.',
             'file_persyaratan.required' => 'File persyaratan wajib diunggah untuk verifikasi.',
             'struktur_pengurus.min' => 'Minimal harus ada 2 pengurus dalam struktur organisasi.',
         ]);
@@ -96,6 +141,26 @@ class OrganisasiController extends Controller
 
             $currentLogin = $this->getCurrentLogin($request);
             
+            // Ambil data pengguna untuk nama organisasi
+            $pengguna = Pengguna::find($currentLogin->user_id);
+            $namaOrganisasi = $pengguna->nama_pengguna;
+            
+            // Cek apakah nama organisasi sudah ada
+            $existingOrganisasi = Organisasi::where('nama_organisasi', $namaOrganisasi)->first();
+            if ($existingOrganisasi) {
+                DB::rollback();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Nama organisasi sudah terdaftar dalam sistem. Tidak dapat menggunakan nama pengguna yang sama.',
+                    'errors' => [
+                        'nama_organisasi' => ['Nama organisasi "' . $namaOrganisasi . '" sudah terdaftar.']
+                    ]
+                ], 422);
+            }
+
+            // Cari kajian berdasarkan nama
+            $kajian = Kajian::where('nama_kajian', $request->nama_kajian)->first();
+            
             $logoPath = null;
             if ($request->hasFile('logo_organisasi')) {
                 $logoPath = $request->file('logo_organisasi')->store('logos', 'public');
@@ -109,8 +174,8 @@ class OrganisasiController extends Controller
             // Buat organisasi dengan status pending
             $organisasi = Organisasi::create([
                 'pengguna_id' => $currentLogin->user_id,
-                'kajian_id' => $request->kajian_id,
-                'nama_organisasi' => $request->nama_organisasi,
+                'kajian_id' => $kajian->id, // Menggunakan ID dari nama kajian
+                'nama_organisasi' => $namaOrganisasi, // Otomatis menggunakan nama pengguna
                 'tanggal_berdiri' => $request->tanggal_berdiri,
                 'deskripsi_organisasi' => $request->deskripsi_organisasi,
                 'logo_organisasi' => $logoPath,
@@ -154,7 +219,7 @@ class OrganisasiController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Organisasi berhasil dibuat dan menunggu verifikasi admin',
+                'message' => 'Organisasi berhasil dibuat dengan nama "' . $namaOrganisasi . '" dan menunggu verifikasi admin',
                 'data' => $organisasi
             ], 201);
 
@@ -205,9 +270,10 @@ class OrganisasiController extends Controller
     {
         try {
             $organisasi = Organisasi::findOrFail($id);
+            $currentLogin = $this->getCurrentLogin($request);
 
             // Check if user owns this organisasi or is admin
-            if ($request->user()->id !== $organisasi->pengguna_id && !$request->user() instanceof Admin) {
+            if ($currentLogin->user_type === 'pengguna' && $currentLogin->user_id !== $organisasi->pengguna_id) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized'
@@ -215,8 +281,7 @@ class OrganisasiController extends Controller
             }
 
             $validator = Validator::make($request->all(), [
-                'kajian_id' => 'sometimes|exists:kajians,id',
-                'nama_organisasi' => 'sometimes|string|max:255|unique:organisasis,nama_organisasi,' . $id,
+                'nama_kajian' => 'sometimes|string|exists:kajians,nama_kajian', // Menggunakan nama kajian
                 'tanggal_berdiri' => 'sometimes|date',
                 'deskripsi_organisasi' => 'sometimes|string',
                 'logo_organisasi' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -230,8 +295,6 @@ class OrganisasiController extends Controller
                 'struktur_pengurus.*.nomor_sk' => 'nullable|string|max:100',
                 'struktur_pengurus.*.nomor_keanggotaan' => 'nullable|string|max:100',
                 'struktur_pengurus.*.no_telpon' => 'nullable|string|max:15',
-            ], [
-                'nama_organisasi.unique' => 'Nama organisasi sudah terdaftar dalam sistem.',
             ]);
 
             if ($validator->fails()) {
@@ -258,7 +321,15 @@ class OrganisasiController extends Controller
                 $organisasi->file_persyaratan = $request->file('file_persyaratan')->store('persyaratan', 'public');
             }
 
-            $organisasi->update($request->except(['logo_organisasi', 'file_persyaratan', 'sosial_media', 'struktur_pengurus']));
+            // Update kajian jika ada perubahan nama kajian
+            $updateData = $request->except(['logo_organisasi', 'file_persyaratan', 'sosial_media', 'struktur_pengurus', 'nama_kajian']);
+            
+            if ($request->has('nama_kajian')) {
+                $kajian = Kajian::where('nama_kajian', $request->nama_kajian)->first();
+                $updateData['kajian_id'] = $kajian->id;
+            }
+
+            $organisasi->update($updateData);
 
             // Update sosial media
             if ($request->has('sosial_media')) {
@@ -304,10 +375,19 @@ class OrganisasiController extends Controller
         }
     }
 
-    public function destroy($id)
+    public function destroy($id, Request $request)
     {
         try {
             $organisasi = Organisasi::findOrFail($id);
+            $currentLogin = $this->getCurrentLogin($request);
+
+            // Check if user owns this organisasi or is admin
+            if ($currentLogin->user_type === 'pengguna' && $currentLogin->user_id !== $organisasi->pengguna_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized'
+                ], 403);
+            }
 
             // Delete associated files
             if ($organisasi->logo_organisasi) {
@@ -346,7 +426,7 @@ class OrganisasiController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'status_verifikasi' => 'required|in:aktif,tidak aktif',//.Verifikasi::STATUS_APPROVED.','.Verifikasi::STATUS_REJECTED,
+            'status_verifikasi' => 'required|in:aktif,tidak aktif',
             'catatan_admin' => 'nullable|string|max:1000',
             'link_drive_admin' => 'nullable|url|max:255',
         ]);
@@ -366,13 +446,6 @@ class OrganisasiController extends Controller
             
             // Update status organisasi
             $organisasi->update(['status_verifikasi' => $request->status_verifikasi]);
-
-            // Konversi status ke format verifikasi
-            /**$verifikasiStatus = match($request->status_verifikasi) {
-                Verifikasi::STATUS_APPROVED => Verifikasi::STATUS_APPROVED,
-                Verifikasi::STATUS_REJECTED => Verifikasi::STATUS_REJECTED,
-                default => Verifikasi::STATUS_PENDING
-            };*/
 
             // Update atau buat verifikasi
             if ($organisasi->verifikasi) {
@@ -473,6 +546,46 @@ class OrganisasiController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengambil data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // Method untuk mengecek ketersediaan nama organisasi
+    public function checkNameAvailability(Request $request)
+    {
+        try {
+            $currentLogin = $this->getCurrentLogin($request);
+            
+            if (!$currentLogin) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized'
+                ], 401);
+            }
+
+            // Ambil nama pengguna
+            $pengguna = Pengguna::find($currentLogin->user_id);
+            $namaOrganisasi = $pengguna->nama_pengguna;
+            
+            // Cek apakah nama sudah digunakan
+            $isAvailable = !Organisasi::where('nama_organisasi', $namaOrganisasi)->exists();
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'nama_organisasi' => $namaOrganisasi,
+                    'is_available' => $isAvailable,
+                    'message' => $isAvailable 
+                        ? 'Nama organisasi tersedia'
+                        : 'Nama organisasi sudah terdaftar dalam sistem'
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengecek ketersediaan nama',
                 'error' => $e->getMessage()
             ], 500);
         }

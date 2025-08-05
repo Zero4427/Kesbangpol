@@ -4,6 +4,7 @@ namespace App\Models\Tampilan;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Akses\Organisasi;
 
 class Kajian extends Model
 {
@@ -16,6 +17,6 @@ class Kajian extends Model
 
     public function organisasi()
     {
-        return $this->hasMany(\App\Models\Akses\Organisasi::class);
+        return $this->hasMany(Organisasi::class);
     }
 }
