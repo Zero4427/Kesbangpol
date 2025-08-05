@@ -22,8 +22,8 @@ Route::post('/auth/login-admin', [AuthController::class, 'loginAdmin']);
 
 // ===== ORGANISASI ROUTES (PUBLIC) =====
 // Route untuk melihat organisasi tanpa bearer token (hanya yang terverifikasi)
-Route::get('/organisasi', [OrganisasiController::class, 'indexPublic']);
-Route::get('/organisasi/{id}', [OrganisasiController::class, 'showPublic']);
+Route::get('/organisasi/public', [OrganisasiController::class, 'indexPublic']);
+Route::get('/organisasi/public/{id}', [OrganisasiController::class, 'showPublic']);
 
 // ===== KAJIAN ROUTES (PUBLIC) =====
 // Route untuk melihat kajian tanpa bearer token
@@ -61,17 +61,41 @@ Route::middleware(['auth.bearer'])->group(function () {
     Route::get('/admin/system-stats', [AdminController::class, 'getSystemStats']);
 });
 
+// ===== ADMIN ORGANISASI MANAGEMENT ROUTES (NEW) =====
+Route::middleware(['auth.bearer', 'admin.only'])->group(function () {
+    // Admin dapat melihat semua organisasi dengan berbagai filter
+    Route::get('/admin/organisasi/all', [OrganisasiController::class, 'getAllOrganisasiForAdmin']);
+    
+    // Admin dapat melihat organisasi berdasarkan status tertentu
+    Route::get('/admin/organisasi/status/{status}', [OrganisasiController::class, 'getOrganisasiByStatus']);
+    
+    // Admin dapat melihat detail lengkap organisasi (termasuk yang belum diverifikasi)
+    Route::get('/admin/organisasi/{id}/detail', [OrganisasiController::class, 'getDetailForAdmin']);
+    
+    // Admin mendapatkan statistik organisasi
+    Route::get('/admin/organisasi/statistics', [OrganisasiController::class, 'getOrganisasiStatistics']);
+    
+    // Route untuk admin mendapatkan organisasi yang menunggu verifikasi
+    Route::get('/admin/organisasi/pending-verification', [OrganisasiController::class, 'getPendingVerification']);
+    
+    // Route untuk admin melakukan verifikasi organisasi
+    Route::post('/admin/organisasi/{id}/verifikasi', [OrganisasiController::class, 'updateVerifikasi']);
+});
+
 // ===== ORGANISASI ROUTES (PROTECTED) =====
 Route::middleware(['auth.bearer'])->group(function () {
+    // CRUD organisasi
+    Route::get('/organisasi', [OrganisasiController::class, 'index']);
     Route::post('/organisasi', [OrganisasiController::class, 'store']);
-    Route::put('/organisasi/{id}/update', [OrganisasiController::class, 'update']);
+    Route::get('/organisasi/{id}', [OrganisasiController::class, 'show']);
+    Route::put('/organisasi/{id}', [OrganisasiController::class, 'update']);
     Route::delete('/organisasi/{id}', [OrganisasiController::class, 'destroy']);
 
-    // Ambil organisasi berdasarkan pengguna login
-    Route::get('/organisasi/by-user', [OrganisasiController::class, 'getByPengguna']);
+    // Ambil organisasi berdasarkan pengguna login - FIX untuk error "by-user"
+    Route::get('/organisasi/user/my-organizations', [OrganisasiController::class, 'getByPengguna']);
     
     // Route untuk mengecek ketersediaan nama organisasi berdasarkan nama pengguna
-    Route::get('/organisasi/check-availability', [OrganisasiController::class, 'checkNameAvailability']);
+    Route::get('/organisasi/user/check-name-availability', [OrganisasiController::class, 'checkNameAvailability']);
 });
 
 // ===== BERITA ROUTES =====
@@ -139,16 +163,7 @@ Route::middleware(['auth.bearer'])->group(function () {
     Route::patch('/laporans/{id}/archive', [LaporanController::class, 'archive'])->middleware('admin.only');
 });
 
-// === Route untuk verifikasi organisasi ===
-Route::middleware(['auth.bearer'])->group(function () {
-    // Admin routes untuk verifikasi
-    Route::get('/organisasi/pending-verification', [OrganisasiController::class, 'getPendingVerification'])
-        ->middleware('admin.only');
-    Route::post('/organisasi/{id}/verifikasi', [OrganisasiController::class, 'updateVerifikasi'])
-        ->middleware('admin.only');
-    
-});
-
+// ===== PASSWORD RESET ROUTES =====
 Route::middleware(['throttle:otp'])->group(function () {
     Route::post('/auth/forgot-password/request-otp', [ImprovedPasswordResetController::class, 'requestOtp']);
     Route::post('/auth/forgot-password/resend-otp', [ImprovedPasswordResetController::class, 'resendOtp']);
@@ -158,6 +173,7 @@ Route::post('/auth/forgot-password/verify-otp', [ImprovedPasswordResetController
 Route::post('/auth/forgot-password/reset-password', [ImprovedPasswordResetController::class, 'resetPassword']);
 Route::get('/auth/forgot-password/otp-status', [ImprovedPasswordResetController::class, 'getOtpStatus']);
 Route::post('/auth/forgot-password/otp-status', [ImprovedPasswordResetController::class, 'getOtpStatus']);
+
 Route::middleware(['auth.bearer', 'admin.only'])->group(function () {
     Route::get('/admin/password-reset/statistics', [ImprovedPasswordResetController::class, 'getOtpStatistics']);
     Route::post('/admin/password-reset/cleanup-expired', [ImprovedPasswordResetController::class, 'cleanupExpiredOtp']);
