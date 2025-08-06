@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dokumentasi;
 use App\Http\Controllers\Controller;
 use App\Models\Dokumentasi\Berita;
 use App\Models\Akses\Organisasi;
+use App\Models\Akses\Admin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
@@ -17,7 +18,7 @@ class BeritaController extends Controller
             $query = Berita::with(['pengguna', 'organisasi']);
 
             // Filter for approved news only for regular users
-            if (!$request->user() instanceof \App\Models\Akses\Admin) {
+            if (!$request->user() instanceof Admin) {
                 $query->where('is_approved', true);
             }
 
@@ -67,11 +68,10 @@ class BeritaController extends Controller
                 ], 403);
             }
 
-            $dokumentasiPaths = [];
+            // Handle single file upload
+            $dokumentasiPath = null;
             if ($request->hasFile('dokumentasi_kegiatan')) {
-                foreach ($request->file('dokumentasi_kegiatan') as $file) {
-                    $dokumentasiPaths[] = $file->store('dokumentasi', 'public');
-                }
+                $dokumentasiPath = $request->file('dokumentasi_kegiatan')->store('berita', 'public');
             }
 
             $berita = Berita::create([
@@ -82,7 +82,7 @@ class BeritaController extends Controller
                 'lokasi_kegiatan' => $request->lokasi_kegiatan,
                 'tanggal_kegiatan' => $request->tanggal_kegiatan,
                 'deskripsi_kegiatan' => $request->deskripsi_kegiatan,
-                'dokumentasi_kegiatan' => $dokumentasiPaths,
+                'dokumentasi_kegiatan' => $dokumentasiPath,
             ]);
 
             $berita->load(['pengguna', 'organisasi']);
@@ -164,7 +164,7 @@ class BeritaController extends Controller
 
                 $dokumentasiPaths = [];
                 foreach ($request->file('dokumentasi_kegiatan') as $file) {
-                    $dokumentasiPaths[] = $file->store('dokumentasi', 'public');
+                    $dokumentasiPaths[] = $file->store('berita', 'public');
                 }
                 $berita->dokumentasi_kegiatan = $dokumentasiPaths;
             }
@@ -194,7 +194,7 @@ class BeritaController extends Controller
             $berita = Berita::findOrFail($id);
 
             // Check if user owns this berita or is admin
-            if ($request->user()->id !== $berita->pengguna_id && !$request->user() instanceof \App\Models\Akses\Admin) {
+            if ($request->user()->id !== $berita->pengguna_id && !$request->user() instanceof Admin) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized'
