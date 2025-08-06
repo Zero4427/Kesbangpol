@@ -130,6 +130,8 @@ Route::middleware(['auth.bearer'])->group(function () {
 
 // ===== BIDANG ROUTES (PROTECTED - ADMIN ONLY) =====
 Route::middleware(['auth.bearer', 'admin.only'])->group(function () {
+    Route::get('/admin/bidang', [BidangController::class, 'index']);
+    Route::get('/admin/bidang/{id}', [BidangController::class, 'show']);
     Route::post('/admin/bidang', [BidangController::class, 'store']);
     Route::put('/admin/bidang/{id}/update', [BidangController::class, 'update']);
     Route::delete('/admin/bidang/{id}', [BidangController::class, 'destroy']);
